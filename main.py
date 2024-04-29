@@ -4,7 +4,7 @@ import sys
 from typing import Tuple, Optional
 from torch import Tensor
 from sklearn import metrics
-import torch.nn.functional as Fa
+import torch.nn.functional as F
 from torch.utils.tensorboard import SummaryWriter # pip install setuptools==59.5.0
 
 from sklearn.metrics import f1_score
@@ -50,7 +50,7 @@ class MainExplainer:
            # Log training loss
            writer.add_scalar('Loss/train', epoch_loss, i)
 
-           train_micro, train_auc, train_macro = self.eval(model, train_loader)
+           train_micro, train_auc, train_macro = self.eval(model, train_loader, args)
            # Log training metrics
            writer.add_scalar('Accuracy/train_micro', train_micro, i)
            writer.add_scalar('AUC/train_auc', train_auc, i)
@@ -62,7 +62,7 @@ class MainExplainer:
                f'train_auc={(train_auc * 100):.2f}')
 
            if (i + 1) % args.test_interval == 0:
-               test_micro, test_auc, test_macro = self.eval(model, test_loader)
+               test_micro, test_auc, test_macro = self.eval(model, test_loader, args)
                accs.append(test_micro)
                aucs.append(test_auc)
                macros.append(test_macro)
@@ -99,10 +99,9 @@ class MainExplainer:
        return epoch_num
 
    @torch.no_grad()
-   def eval(self, model, loader, test_loader: Optional[DataLoader] = None) -> (float, float):
+   def eval(self, model, loader, args, test_loader: Optional[DataLoader] = None) -> (float, float):
        model.eval()
        preds, trues, preds_prob = [], [], []
-
        for data in loader:
            data = data.to(self.device)
            c = model(data)
@@ -111,16 +110,18 @@ class MainExplainer:
            preds += pred.detach().cpu().tolist()
            preds_prob += torch.exp(c)[:, 1].detach().cpu().tolist()
            trues += data.y.detach().cpu().tolist()
-
-       fpr, tpr, _ = metrics.roc_curve(trues, preds_prob)
-       train_auc = metrics.auc(fpr, tpr)
+       if args.att.lower() == 'gender' or args.att.lower() == 'ethnicity':
+           fpr, tpr, _ = metrics.roc_curve(trues, preds_prob)
+           train_auc = metrics.auc(fpr, tpr)
+       else:
+           train_auc = metrics.roc_auc_score(trues, preds_prob, average="micro")
        if numpy.isnan(train_auc):
            train_auc = 0.5
        train_micro = f1_score(trues, preds, average='micro')
        train_macro = f1_score(trues, preds, average='macro', labels=[0, 1])
 
        if test_loader is not None:
-           test_micro, test_auc, test_macro = self.eval(model, test_loader)
+           test_micro, test_auc, test_macro = self.eval(model, test_loader, args)
            return train_micro, train_auc, train_macro, test_micro, test_auc, test_macro
        else:
            return train_micro, train_auc, train_macro
@@ -144,7 +145,8 @@ class MainExplainer:
        self.train_and_evaluate(explainer.model, masked_train_loader, masked_test_loader, optimizer,
                                device, args, is_tuning=True)
        explainer_test_micro, explainer_test_auc, explainer_test_macro = self.eval(explainer.model,
-                                                                                  masked_test_loader)
+                                                                                  masked_test_loader,
+                                                                                  args)
 
        print(f'(Tuning Performance Last Epoch) | explainer_test_micro={(explainer_test_micro * 100):.2f}, '
              f'explainer_test_macro={(explainer_test_macro * 100):.2f}, '
@@ -191,7 +193,8 @@ class MainExplainer:
                            choices=['sum', 'concat', 'mean'],
                            default='sum')
        parser.add_argument('--explain', action='store_true')
-       parser.add_argument('--modality', type=str, default='dti') ##
+       parser.add_argument('--modality', type=str, default='dti')
+       parser.add_argument('--att', type=str, default='gender')
        parser.add_argument('--dataset_name', type=str, default="HCP")
        parser.add_argument('--train_batch_size', type=int, default=16)
        parser.add_argument('--test_batch_size', type=int, default=16)
@@ -360,5 +363,3 @@ def count_degree(data: numpy.ndarray):  # data: (sample, node, node)
 
 if __name__ == '__main__':
    MainExplainer().main()
-
-
