@@ -1,0 +1,13 @@
+torch~=1.10.2
+numpy~=1.22.2
+nni~=2.4
+PyYAML~=5.4.1
+scikit-learn~=1.0.2
+networkx~=2.6.2
+scipy~=1.7.3
+tensorly~=0.6.0
+pandas~=1.4.1
+libsvm~=3.23.0.4
+matplotlib~=3.4.3
+tqdm~=4.62.3
+h5py~=3.6.0
